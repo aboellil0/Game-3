@@ -57,21 +57,71 @@ export interface PredictionResponse {
 
 export async function predictEnvironmentalImpact(metrics: CityMetrics): Promise<PredictionResponse> {
   try {
-    const response = await fetch(`${API_BASE_URL}/predict/complete`, {
+    const requestUrl = `${API_BASE_URL}/predict/complete`
+    const requestBody = JSON.stringify(metrics, null, 2)
+    
+    // Log the request
+    console.log('='.repeat(80))
+    console.log('📤 API REQUEST')
+    console.log('='.repeat(80))
+    console.log('URL:', requestUrl)
+    console.log('Method: POST')
+    console.log('Timestamp:', new Date().toISOString())
+    console.log('Headers:', {
+      "Content-Type": "application/json",
+    })
+    console.log('Request Body:')
+    console.log(requestBody)
+    console.log('='.repeat(80))
+    
+    const requestStartTime = performance.now()
+
+    const response = await fetch(requestUrl, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
       },
-      body: JSON.stringify(metrics),
+      body: requestBody,
     })
 
+    const requestEndTime = performance.now()
+    const requestDuration = (requestEndTime - requestStartTime).toFixed(2)
+
     if (!response.ok) {
+      console.log('='.repeat(80))
+      console.log('❌ API RESPONSE ERROR')
+      console.log('='.repeat(80))
+      console.log('Status:', response.status, response.statusText)
+      console.log('Duration:', requestDuration, 'ms')
+      console.log('Timestamp:', new Date().toISOString())
+      console.log('='.repeat(80))
       throw new Error(`API request failed: ${response.statusText}`)
     }
 
     const data = await response.json()
+    
+    // Log the response
+    console.log('='.repeat(80))
+    console.log('📥 API RESPONSE SUCCESS')
+    console.log('='.repeat(80))
+    console.log('Status:', response.status, response.statusText)
+    console.log('Duration:', requestDuration, 'ms')
+    console.log('Timestamp:', new Date().toISOString())
+    console.log('Response Data:')
+    console.log(JSON.stringify(data, null, 2))
+    console.log('='.repeat(80))
+    console.log('\n')
+    
     return data
   } catch (error) {
+    console.log('='.repeat(80))
+    console.log('💥 API ERROR')
+    console.log('='.repeat(80))
+    console.log('Error:', error)
+    console.log('Error Message:', error instanceof Error ? error.message : 'Unknown error')
+    console.log('Timestamp:', new Date().toISOString())
+    console.log('='.repeat(80))
+    console.log('\n')
     console.error("Environmental prediction error:", error)
     throw error
   }
@@ -83,8 +133,6 @@ export function calculateCityMetrics(
   latitude: number = 30.0444, // Cairo, Egypt default
   longitude: number = 31.2357
 ): CityMetrics {
-  const totalElements = Math.max(elements.length, 1) // Avoid division by zero
-
   const counts = {
     house: 0,
     factory: 0,
@@ -101,22 +149,23 @@ export function calculateCityMetrics(
   })
 
   // Calculate coverage/density values (0-1 range)
-  // Assuming a grid can hold max 100 elements for normalization
-  const maxElements = 100
+  // Maximum of 10 elements per type
+  const MAX_PER_TYPE = 10
 
-  const residential_buildings = Math.min(counts.house / maxElements, 1)
-  const industrial_buildings = Math.min(counts.factory / maxElements, 1)
-  const tree_coverage = Math.min(counts.tree / maxElements, 1)
-  const solar_panel_coverage = Math.min(counts.solar / maxElements, 1)
-  const wind_turbine_density = Math.min(counts.wind / maxElements, 1)
-  const waste_density = Math.min(counts.waste / maxElements, 1)
+  // Calculate percentages: count/10 for each type
+  const residential_buildings = Math.min(counts.house / MAX_PER_TYPE, 1)
+  const industrial_buildings = Math.min(counts.factory / MAX_PER_TYPE, 1)
+  const tree_coverage = Math.min(counts.tree / MAX_PER_TYPE, 1)
+  const solar_panel_coverage = Math.min(counts.solar / MAX_PER_TYPE, 1)
+  const wind_turbine_density = Math.min(counts.wind / MAX_PER_TYPE, 1)
+  const waste_density = Math.min(counts.waste / MAX_PER_TYPE, 1)
 
   // Calculate derived metrics
-  const building_density = residential_buildings + industrial_buildings
-  const concrete_coverage = building_density + waste_density * 0.5
-  const vegetation_coverage = tree_coverage * 0.8 // Trees contribute to vegetation
-  const water_coverage = 0.1 // Default small water coverage
-  const traffic_density = (residential_buildings + industrial_buildings) * 0.3 // Traffic correlates with buildings
+  const building_density = Math.min((residential_buildings + industrial_buildings) / 2, 1)
+  const concrete_coverage = Math.min(building_density + waste_density * 0.5, 1)
+  const vegetation_coverage = Math.min(tree_coverage, 1) // Trees represent vegetation
+  const water_coverage = 0.05 // Default small water coverage
+  const traffic_density = Math.min((residential_buildings + industrial_buildings) * 0.4, 1) // Traffic correlates with buildings
 
   // Get current hour
   const hour_of_day = new Date().getHours()

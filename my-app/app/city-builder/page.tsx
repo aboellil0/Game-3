@@ -1,12 +1,11 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState } from "react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
-import { Play, Pause, RotateCcw, Sparkles, AlertCircle } from "lucide-react"
+import { RotateCcw, Sparkles, AlertCircle } from "lucide-react"
 import { motion, AnimatePresence } from "framer-motion"
-import { PredictionModal } from "@/components/prediction-modal"
 import { predictEnvironmentalImpact, calculateCityMetrics, type PredictionResponse } from "@/lib/ai-prediction"
 
 type ElementType = "house" | "factory" | "tree" | "solar" | "wind" | "waste"
@@ -107,99 +106,26 @@ export default function CityBuilderPage() {
     energy: 50,
     atmosphere: 50
   })
-  const [currentYear, setCurrentYear] = useState(0)
-  const [isSimulating, setIsSimulating] = useState(false)
-  const [showPrediction, setShowPrediction] = useState(false)
   const [isDragging, setIsDragging] = useState(false)
   const [draggedType, setDraggedType] = useState<ElementType | null>(null)
-  const [showEndGame, setShowEndGame] = useState(false)
   const [apiPrediction, setApiPrediction] = useState<PredictionResponse | null>(null)
-  const [isLoadingPrediction, setIsLoadingPrediction] = useState(false)
   const [apiError, setApiError] = useState<string | null>(null)
 
-  // Fetch API predictions whenever elements change
-  useEffect(() => {
-    const fetchPrediction = async () => {
-      if (elements.length === 0) {
-        setApiPrediction(null)
-        return
-      }
-
-      setIsLoadingPrediction(true)
-      setApiError(null)
-
-      try {
-        const metrics = calculateCityMetrics(elements)
-        const prediction = await predictEnvironmentalImpact(metrics)
-        setApiPrediction(prediction)
-
-        // Update stats based on API prediction
-        const newStats = {
-          airQuality: Math.max(0, Math.min(100, 100 - prediction.air_quality.aqi)),
-          temperature: Math.max(0, Math.min(100, 100 - (prediction.temperature.uhi_intensity * 10))),
-          vegetation: Math.max(0, Math.min(100, metrics.vegetation_coverage * 100)),
-          energy: Math.max(0, Math.min(100, prediction.energy.sustainability)),
-          atmosphere: Math.max(0, Math.min(100, prediction.scores.air_quality))
-        }
-        setStats(newStats)
-      } catch (error) {
-        console.error("Failed to fetch prediction:", error)
-        setApiError("Unable to connect to prediction server")
-        // Fall back to local calculation
-        calculateStatsLocally()
-      } finally {
-        setIsLoadingPrediction(false)
-      }
-    }
-
-    const debounceTimer = setTimeout(fetchPrediction, 500)
-    return () => clearTimeout(debounceTimer)
-  }, [elements])
-
-  // Fallback local calculation
-  const calculateStatsLocally = () => {
-    const newStats = {
-      airQuality: 50,
-      temperature: 50,
-      vegetation: 50,
-      energy: 50,
-      atmosphere: 50
-    }
-
-    elements.forEach((element) => {
-      const impact = ELEMENT_TYPES[element.type].impact
-      newStats.airQuality += impact.airQuality
-      newStats.temperature += impact.temperature
-      newStats.vegetation += impact.vegetation
-      newStats.energy += impact.energy
-      newStats.atmosphere += impact.atmosphere
-    })
-
-    // Clamp values between 0 and 100
-    Object.keys(newStats).forEach((key) => {
-      newStats[key as keyof EnvironmentalStats] = Math.max(
-        0,
-        Math.min(100, newStats[key as keyof EnvironmentalStats])
-      )
-    })
-
-    setStats(newStats)
+  // Count elements by type
+  const getElementCount = (type: ElementType) => {
+    return elements.filter(el => el.type === type).length
   }
 
-  // Simulation timer
-  useEffect(() => {
-    if (isSimulating && currentYear < 10) {
-      const timer = setTimeout(() => {
-        setCurrentYear((prev) => prev + 1)
-      }, 2000)
-      return () => clearTimeout(timer)
-    } else if (currentYear >= 10) {
-      setIsSimulating(false)
-      setShowEndGame(true)
-    }
-  }, [isSimulating, currentYear])
+  // Check if can add more of this type
+  const canAddElement = (type: ElementType) => {
+    return getElementCount(type) < 10
+  }
 
   const handleDragStart = (type: ElementType, e: React.DragEvent) => {
+    if (!canAddElement(type)) {
+      e.preventDefault()
+      return
+    }
     setIsDragging(true)
     setDraggedType(type)
     e.dataTransfer.effectAllowed = "copy"
@@ -212,7 +138,7 @@ export default function CityBuilderPage() {
 
   const handleDrop = (e: React.DragEvent) => {
     e.preventDefault()
-    if (draggedType) {
+    if (draggedType && canAddElement(draggedType)) {
       const rect = e.currentTarget.getBoundingClientRect()
       const x = ((e.clientX - rect.left) / rect.width) * 100
       const y = ((e.clientY - rect.top) / rect.height) * 100
@@ -237,29 +163,111 @@ export default function CityBuilderPage() {
     setElements((prev) => prev.filter((el) => el.id !== id))
   }
 
-  const handleSimulate = () => {
+  const handlePredictWithAI = async () => {
     if (elements.length === 0) {
       alert("Please add some elements to your city first!")
       return
     }
-    setIsSimulating(!isSimulating)
+
+    setApiError(null)
+
+    try {
+      const metrics = calculateCityMetrics(elements)
+      const prediction = await predictEnvironmentalImpact(metrics)
+      setApiPrediction(prediction)
+
+      // Update stats based on API prediction with safe fallbacks
+      const newStats = {
+        airQuality: Math.max(0, Math.min(100, 100 - (prediction.air_quality?.aqi || 0))),
+        temperature: Math.max(0, Math.min(100, 100 - ((prediction.temperature?.uhi_intensity || 0) * 10))),
+        vegetation: Math.max(0, Math.min(100, (metrics.vegetation_coverage || 0) * 100)),
+        energy: Math.max(0, Math.min(100, prediction.energy?.sustainability || 50)),
+        atmosphere: Math.max(0, Math.min(100, prediction.scores?.air_quality || 50))
+      }
+      
+      // Final NaN check
+      Object.keys(newStats).forEach((key) => {
+        const statKey = key as keyof EnvironmentalStats
+        if (isNaN(newStats[statKey]) || !isFinite(newStats[statKey])) {
+          newStats[statKey] = 50
+        }
+      })
+      
+      setStats(newStats)
+    } catch (error) {
+      console.error("Failed to fetch prediction:", error)
+      setApiError("Unable to connect to prediction server")
+      // Fall back to local calculation
+      calculateStatsLocally()
+    }
+  }
+
+  // Fallback local calculation
+  const calculateStatsLocally = () => {
+    const newStats = {
+      airQuality: 50,
+      temperature: 50,
+      vegetation: 50,
+      energy: 50,
+      atmosphere: 50
+    }
+
+    elements.forEach((element) => {
+      const impact = ELEMENT_TYPES[element.type].impact
+      newStats.airQuality += impact.airQuality
+      newStats.temperature += impact.temperature
+      newStats.vegetation += impact.vegetation
+      newStats.energy += impact.energy
+      newStats.atmosphere += impact.atmosphere
+    })
+
+    // Clamp values between 0 and 100
+    Object.keys(newStats).forEach((key) => {
+      const statKey = key as keyof EnvironmentalStats
+      newStats[statKey] = Math.max(
+        0,
+        Math.min(100, newStats[statKey])
+      )
+      // Ensure no NaN values
+      if (isNaN(newStats[statKey])) {
+        newStats[statKey] = 50
+      }
+    })
+
+    setStats(newStats)
   }
 
   const handleReset = () => {
     setElements([])
-    setCurrentYear(0)
-    setIsSimulating(false)
-    setShowEndGame(false)
+    setStats({
+      airQuality: 50,
+      temperature: 50,
+      vegetation: 50,
+      energy: 50,
+      atmosphere: 50
+    })
+    setApiPrediction(null)
+    setApiError(null)
+  }
+
+  // Helper function to safely render numeric values
+  const safeNumber = (value: number): number => {
+    if (isNaN(value) || !isFinite(value)) {
+      return 0
+    }
+    return Math.round(value)
   }
 
   const getStatColor = (value: number) => {
-    if (value >= 70) return "bg-green-500"
-    if (value >= 40) return "bg-yellow-500"
+    const safeValue = safeNumber(value)
+    if (safeValue >= 70) return "bg-green-500"
+    if (safeValue >= 40) return "bg-yellow-500"
     return "bg-red-500"
   }
 
   const getOverallScore = () => {
-    const average = Object.values(stats).reduce((a, b) => a + b, 0) / 5
+    const values = Object.values(stats).filter(v => !isNaN(v) && isFinite(v))
+    const average = values.length > 0 ? values.reduce((a, b) => a + b, 0) / values.length : 50
     if (average >= 70) return { label: "Excellent", color: "bg-green-500", emoji: "🌟" }
     if (average >= 50) return { label: "Good", color: "bg-blue-500", emoji: "👍" }
     if (average >= 30) return { label: "Fair", color: "bg-yellow-500", emoji: "⚠️" }
@@ -279,29 +287,18 @@ export default function CityBuilderPage() {
                 <div>
                   <CardTitle className="text-3xl md:text-4xl mb-2">Terra City Builder</CardTitle>
                   <CardDescription className="text-base">
-                    Build your city and watch the environmental impact over 10 years
+                    Build your city and analyze environmental impact with AI
                   </CardDescription>
                 </div>
 
                 <div className="flex gap-3 flex-wrap">
                   <Button
-                    onClick={handleSimulate}
-                    disabled={currentYear >= 10}
+                    onClick={handlePredictWithAI}
                     size="lg"
-                    variant={isSimulating ? "destructive" : "default"}
                     className="font-bold"
                   >
-                    {isSimulating ? (
-                      <>
-                        <Pause className="w-4 h-4 mr-2" />
-                        Pause
-                      </>
-                    ) : (
-                      <>
-                        <Play className="w-4 h-4 mr-2" />
-                        {currentYear > 0 ? "Resume" : "Start"}
-                      </>
-                    )}
+                    <Sparkles className="w-4 h-4 mr-2" />
+                    Start Predict Using AI
                   </Button>
 
                   <Button onClick={handleReset} size="lg" variant="outline" className="font-bold">
@@ -310,24 +307,6 @@ export default function CityBuilderPage() {
                   </Button>
                 </div>
               </div>
-
-              {/* Year Progress */}
-              {currentYear > 0 && (
-                <div className="mt-4">
-                  <div className="flex justify-between items-center mb-2">
-                    <span className="text-sm font-medium">Year {currentYear} of 10</span>
-                    <Badge variant="secondary">{Math.round((currentYear / 10) * 100)}%</Badge>
-                  </div>
-                  <div className="h-3 bg-secondary rounded-full overflow-hidden">
-                    <motion.div
-                      className="h-full bg-primary"
-                      initial={{ width: 0 }}
-                      animate={{ width: `${(currentYear / 10) * 100}%` }}
-                      transition={{ duration: 0.5 }}
-                    />
-                  </div>
-                </div>
-              )}
             </CardHeader>
           </Card>
         </div>
@@ -342,35 +321,36 @@ export default function CityBuilderPage() {
                 <CardDescription>Drag elements to your city</CardDescription>
               </CardHeader>
               <CardContent className="space-y-2">
-                {Object.entries(ELEMENT_TYPES).map(([key, value]) => (
-                  <div
-                    key={key}
-                    draggable
-                    onDragStart={(e) => handleDragStart(key as ElementType, e)}
-                    onDragEnd={handleDragEnd}
-                    className="p-3 bg-secondary/50 hover:bg-secondary rounded-lg cursor-move border-2 border-transparent hover:border-primary/50 transition-all hover:scale-102 active:scale-98"
-                  >
-                    <div className="flex items-center gap-3">
-                      <span className="text-3xl">{value.emoji}</span>
-                      <div className="flex-1">
-                        <div className="font-medium">{value.name}</div>
-                        <div className="text-xs text-muted-foreground">{value.description}</div>
+                {Object.entries(ELEMENT_TYPES).map(([key, value]) => {
+                  const count = getElementCount(key as ElementType)
+                  const isMaxed = count >= 10
+                  return (
+                    <div
+                      key={key}
+                      draggable={!isMaxed}
+                      onDragStart={(e) => handleDragStart(key as ElementType, e)}
+                      onDragEnd={handleDragEnd}
+                      className={`p-3 rounded-lg border-2 transition-all ${
+                        isMaxed
+                          ? "bg-secondary/20 cursor-not-allowed opacity-50"
+                          : "bg-secondary/50 hover:bg-secondary cursor-move border-transparent hover:border-primary/50 hover:scale-102 active:scale-98"
+                      }`}
+                    >
+                      <div className="flex items-center gap-3">
+                        <span className="text-3xl">{value.emoji}</span>
+                        <div className="flex-1">
+                          <div className="font-medium">{value.name}</div>
+                          <div className="text-xs text-muted-foreground">{value.description}</div>
+                        </div>
+                        <Badge variant={isMaxed ? "destructive" : "secondary"}>
+                          {count}/10
+                        </Badge>
                       </div>
                     </div>
-                  </div>
-                ))}
+                  )
+                })}
               </CardContent>
             </Card>
-
-            <Button
-              onClick={() => setShowPrediction(true)}
-              size="lg"
-              className="w-full"
-              variant="secondary"
-            >
-              <Sparkles className="w-4 h-4 mr-2" />
-              AI Climate Prediction
-            </Button>
           </div>
 
           {/* Build Area */}
@@ -447,7 +427,7 @@ export default function CityBuilderPage() {
                           <span className="text-lg">{instrument.icon}</span>
                           <span className="text-sm font-medium">{instrument.name}</span>
                         </div>
-                        <Badge variant="secondary">{Math.round(value)}</Badge>
+                        <Badge variant="secondary">{safeNumber(value)}</Badge>
                       </div>
                       <div className="h-2 bg-secondary rounded-full overflow-hidden">
                         <motion.div
@@ -480,14 +460,14 @@ export default function CityBuilderPage() {
             </Card>
 
             {apiError && (
-              <Card>
+              <Card className="border-red-500/50">
                 <CardHeader>
-                  <CardTitle>Error</CardTitle>
+                  <CardTitle className="text-red-500">Connection Error</CardTitle>
                 </CardHeader>
                 <CardContent>
                   <div className="flex items-center gap-2 text-red-500">
                     <AlertCircle className="w-5 h-5" />
-                    <span>{apiError}</span>
+                    <span className="text-sm">{apiError}</span>
                   </div>
                 </CardContent>
               </Card>
@@ -495,66 +475,6 @@ export default function CityBuilderPage() {
           </div>
         </div>
       </div>
-
-      {/* End Game Modal */}
-      {showEndGame && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
-          <motion.div
-            initial={{ scale: 0.9, opacity: 0 }}
-            animate={{ scale: 1, opacity: 1 }}
-            className="bg-white dark:bg-gray-800 rounded-lg p-8 max-w-2xl w-full"
-          >
-            <div className="text-center mb-6">
-              <div className="text-6xl mb-4">{overallScore.emoji}</div>
-              <h2 className="text-3xl font-bold mb-2">Simulation Complete!</h2>
-              <p className="text-muted-foreground">10 years have passed in your city</p>
-            </div>
-
-            <div className="grid grid-cols-2 gap-4 mb-6">
-              {TERRA_INSTRUMENTS.map((instrument) => (
-                <Card key={instrument.name}>
-                  <CardContent className="pt-6">
-                    <div className="text-center">
-                      <div className="text-2xl mb-2">{instrument.icon}</div>
-                      <div className="text-sm font-medium mb-1">{instrument.name}</div>
-                      <Badge className={getStatColor(stats[instrument.stat])}>
-                        {Math.round(stats[instrument.stat])}
-                      </Badge>
-                    </div>
-                  </CardContent>
-                </Card>
-              ))}
-            </div>
-
-            <div className="mb-6 p-4 bg-secondary rounded-lg">
-              <div className="text-center">
-                <div className="text-sm text-muted-foreground mb-1">Overall Environmental Score</div>
-                <Badge className={`${overallScore.color} text-xl px-6 py-2`}>{overallScore.label}</Badge>
-              </div>
-            </div>
-
-            <div className="flex gap-3">
-              <Button onClick={handleReset} size="lg" className="flex-1">
-                <RotateCcw className="w-4 h-4 mr-2" />
-                Build New City
-              </Button>
-              <Button onClick={() => setShowEndGame(false)} size="lg" variant="outline" className="flex-1">
-                View City
-              </Button>
-            </div>
-          </motion.div>
-        </div>
-      )}
-
-      <PredictionModal 
-        open={showPrediction} 
-        onOpenChange={setShowPrediction} 
-        metrics={{
-          population: elements.filter(e => e.type === 'house' || e.type === 'factory').length * 10,
-          pollution: Math.max(0, 100 - stats.airQuality),
-          greenScore: stats.vegetation
-        }} 
-      />
     </main>
   )
 }
