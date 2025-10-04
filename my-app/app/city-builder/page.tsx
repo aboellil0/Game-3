@@ -4,9 +4,10 @@ import { useState, useEffect } from "react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
-import { Play, Pause, RotateCcw, Sparkles } from "lucide-react"
+import { Play, Pause, RotateCcw, Sparkles, AlertCircle } from "lucide-react"
 import { motion, AnimatePresence } from "framer-motion"
 import { PredictionModal } from "@/components/prediction-modal"
+import { predictEnvironmentalImpact, calculateCityMetrics, type PredictionResponse } from "@/lib/ai-prediction"
 
 type ElementType = "house" | "factory" | "tree" | "solar" | "wind" | "waste"
 
@@ -112,9 +113,51 @@ export default function CityBuilderPage() {
   const [isDragging, setIsDragging] = useState(false)
   const [draggedType, setDraggedType] = useState<ElementType | null>(null)
   const [showEndGame, setShowEndGame] = useState(false)
+  const [apiPrediction, setApiPrediction] = useState<PredictionResponse | null>(null)
+  const [isLoadingPrediction, setIsLoadingPrediction] = useState(false)
+  const [apiError, setApiError] = useState<string | null>(null)
 
-  // Calculate stats whenever elements change
+  // Fetch API predictions whenever elements change
   useEffect(() => {
+    const fetchPrediction = async () => {
+      if (elements.length === 0) {
+        setApiPrediction(null)
+        return
+      }
+
+      setIsLoadingPrediction(true)
+      setApiError(null)
+
+      try {
+        const metrics = calculateCityMetrics(elements)
+        const prediction = await predictEnvironmentalImpact(metrics)
+        setApiPrediction(prediction)
+
+        // Update stats based on API prediction
+        const newStats = {
+          airQuality: Math.max(0, Math.min(100, 100 - prediction.air_quality.aqi)),
+          temperature: Math.max(0, Math.min(100, 100 - (prediction.temperature.uhi_intensity * 10))),
+          vegetation: Math.max(0, Math.min(100, metrics.vegetation_coverage * 100)),
+          energy: Math.max(0, Math.min(100, prediction.energy.sustainability)),
+          atmosphere: Math.max(0, Math.min(100, prediction.scores.air_quality))
+        }
+        setStats(newStats)
+      } catch (error) {
+        console.error("Failed to fetch prediction:", error)
+        setApiError("Unable to connect to prediction server")
+        // Fall back to local calculation
+        calculateStatsLocally()
+      } finally {
+        setIsLoadingPrediction(false)
+      }
+    }
+
+    const debounceTimer = setTimeout(fetchPrediction, 500)
+    return () => clearTimeout(debounceTimer)
+  }, [elements])
+
+  // Fallback local calculation
+  const calculateStatsLocally = () => {
     const newStats = {
       airQuality: 50,
       temperature: 50,
@@ -141,7 +184,7 @@ export default function CityBuilderPage() {
     })
 
     setStats(newStats)
-  }, [elements])
+  }
 
   // Simulation timer
   useEffect(() => {
@@ -435,6 +478,20 @@ export default function CityBuilderPage() {
                 </div>
               </CardContent>
             </Card>
+
+            {apiError && (
+              <Card>
+                <CardHeader>
+                  <CardTitle>Error</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="flex items-center gap-2 text-red-500">
+                    <AlertCircle className="w-5 h-5" />
+                    <span>{apiError}</span>
+                  </div>
+                </CardContent>
+              </Card>
+            )}
           </div>
         </div>
       </div>
