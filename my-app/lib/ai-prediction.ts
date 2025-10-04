@@ -22,37 +22,69 @@ export interface CityMetrics {
 
 export interface PredictionResponse {
   temperature: {
-    predicted: number
-    uhi_intensity: number
-    base: number
-    factors: Record<string, number>
+    predicted_temperature?: number
+    predicted?: number
+    uhi_intensity?: number
+    base_temperature?: number
+    base?: number
+    factors?: Record<string, number>
+    confidence?: number
+    data_source?: string
+    satellite_data?: any
+    status?: string
+    weather_conditions?: any
   }
   air_quality: {
-    aqi: number
-    category: string
-    sinks: Record<string, number>
-    sources: Record<string, number>
-    recommendations: string[]
+    air_quality_index?: number
+    aqi?: number
+    category?: string
+    health_implications?: string
+    humidity_effect?: number
+    pollution_sinks?: number
+    pollution_sources?: number
+    sinks?: Record<string, number>
+    sources?: Record<string, number>
+    recommendations?: string[]
+    status?: string
+    weather_conditions?: any
+    wind_effect?: number
   }
   energy: {
-    balance: number
-    production: {
-      solar: number
-      wind: number
-      total: number
+    balance?: number
+    energy_balance?: number
+    production?: {
+      solar?: number
+      wind?: number
+      total?: number
     }
-    consumption: number
-    sustainability: number
+    consumption?: number
+    total_consumption?: number
+    total_production?: number
+    solar_production?: number
+    wind_production?: number
+    solar_efficiency?: number
+    wind_efficiency?: number
+    consumption_multiplier?: number
+    renewable_percentage?: number
+    sustainability?: number
+    sustainability_score?: number
+    status?: string
+    weather_conditions?: any
   }
   scores: {
-    overall: number
-    temperature: number
-    air_quality: number
-    energy: number
+    overall?: number
+    overall_score?: number
+    temperature?: number
+    temperature_score?: number
+    air_quality?: number
+    air_quality_score?: number
+    energy?: number
+    energy_score?: number
   }
-  data_sources: string[]
-  status: string
-  improvement_suggestions: string[]
+  recommendations?: string[]
+  data_sources?: any
+  status?: string
+  improvement_suggestions?: string[]
 }
 
 export async function predictEnvironmentalImpact(metrics: CityMetrics): Promise<PredictionResponse> {
@@ -208,7 +240,7 @@ export async function trainAndPredict(pollutionOffset = 0): Promise<string> {
 
   try {
     const result = await predictEnvironmentalImpact(defaultMetrics)
-    return result.temperature.predicted.toFixed(2)
+    return (result.temperature.predicted ?? result.temperature.predicted_temperature ?? 0).toFixed(2)
   } catch (error) {
     console.error("Prediction error:", error)
     return "N/A"

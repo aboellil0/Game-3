@@ -177,12 +177,21 @@ export default function CityBuilderPage() {
       setApiPrediction(prediction)
 
       // Update stats based on API prediction with safe fallbacks
+      // Map AQI to 0-100 scale (lower AQI is better, so invert it)
+      // AQI ranges: 0-50 Good, 51-100 Moderate, 101-150 Unhealthy for Sensitive Groups, etc.
+      // We'll map 0-150 AQI to 100-0 score (inverted)
+      const aqi = prediction.air_quality?.air_quality_index || prediction.air_quality?.aqi || 50
+      const airQualityScore = Math.max(0, Math.min(100, 100 - (aqi * 0.67))) // Maps 0-150 AQI to 100-0 score
+      
+      // Use the overall air quality score from the API (already 0-100)
+      const atmosphereScore = prediction.scores?.air_quality_score || prediction.scores?.air_quality || 50
+      
       const newStats = {
-        airQuality: Math.max(0, Math.min(100, 100 - (prediction.air_quality?.aqi || 0))),
+        airQuality: Math.max(0, Math.min(100, airQualityScore)),
         temperature: Math.max(0, Math.min(100, 100 - ((prediction.temperature?.uhi_intensity || 0) * 10))),
         vegetation: Math.max(0, Math.min(100, (metrics.vegetation_coverage || 0) * 100)),
-        energy: Math.max(0, Math.min(100, prediction.energy?.sustainability || 50)),
-        atmosphere: Math.max(0, Math.min(100, prediction.scores?.air_quality || 50))
+        energy: Math.max(0, Math.min(100, prediction.energy?.sustainability_score || prediction.energy?.sustainability || 50)),
+        atmosphere: Math.max(0, Math.min(100, atmosphereScore))
       }
       
       // Final NaN check
